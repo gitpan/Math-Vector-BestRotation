@@ -1,0 +1,22 @@
+Revision history for Math-Vector-BestRotation
+
+0.001   Sun Jan 31 18:34:49 NZDT 2010
+        Functionality that I had in mind is implemented. Test suite coverage
+        is not bad. Documentation is sparse, though. The methods are
+        documented, but SYNOPSIS and DESCRIPTION are empty.
+
+0.002	Tue Feb  2 09:53:40 NZDT 2010
+	Changed namespace from  from Math::BestRotation to
+	Math::Vector::BestRotation.
+
+0.003	Tue Feb  2 13:50:03 NZDT 2010
+	The matrix R is stored internally as a list during data input. This
+	speeds up the input considerably.
+
+0.004	Wed Feb  3 09:02:57 NZDT 2010
+	Fix: Makefile.PL and README still required Class::Accessor although it
+	is not used any more.
+
+0.005	Thu Feb  4 16:19:32 NZDT 2010
+	- Better protection against pathological cases.
+	- New method best_flipped_rotation.
