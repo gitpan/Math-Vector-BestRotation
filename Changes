@@ -20,3 +20,13 @@ Revision history for Math-Vector-BestRotation
 0.005	Thu Feb  4 16:19:32 NZDT 2010
 	- Better protection against pathological cases.
 	- New method best_flipped_rotation.
+
+0.006	Mon Feb  8 12:22:42 NZDT 2010
+	- Fixed and extended documentation.
+	- New method add_many_pairs.
+	- The test suite checks now explicitly for a few examples that the
+	  result is really (close to) the best one. This comes at the price of
+	  a lot of tests, though.
+
+0.007	Mon Feb  8 17:10:54 NZDT 2010
+	Documentation almost complete.

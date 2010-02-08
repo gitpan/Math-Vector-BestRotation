@@ -11,24 +11,16 @@ use Math::MatrixReal;
 
 =head1 NAME
 
-C<Math::Vector::BestRotation> - best rotation to match to vector sets
-
-=head1 INHERITANCE
+C<Math::Vector::BestRotation> - best rotation to match two vector sets
 
 =head1 VERSION
 
-Version 0.005
+Version 0.007
 
 =cut
 
-our $VERSION = '0.005';
+our $VERSION = '0.007';
 
-
-###########################################################################
-#                                                                         #
-#                      Class Variables and Methods                        # 
-#                                                                         #
-###########################################################################
 
 ###########################################################################
 #                                                                         #
@@ -243,6 +235,19 @@ sub add_pair {
     }
 }
 
+sub add_many_pairs {
+    my ($self, $x, $y) = @_;
+    my $matrix_r       = $self->{matrix_r};
+
+    for(my $n=0;$n<@$x;$n++) {
+	for(my $i=0;$i<3;$i++) {
+	    for(my $j=0;$j<3;$j++) {
+		$matrix_r->[3*$i+$j] += $y->[$n]->[$i] * $x->[$n]->[$j];
+	    }
+	}
+    }
+}
+
 sub clear {
     my ($self) = @_;
 
@@ -258,11 +263,60 @@ __END__
 
     use Math::Vector::BestRotation;
 
-    my $foo = Math::Vector::BestRotation->new();
+    my $best = Math::Vector::BestRotation->new();
 
+    $best->add_pair([1, 2, 3], [4, 5, 6]);
+    $best->add_pair([0, -1, 5], [-3, 6, 0]);
+    .
+    .
+    .
+    $best->add_pair([3, -1, 5], [0.1, -0.7, 4]);
+
+    my $ortho = $best->best_orthogonal;
+    my $rot   = $best->best_rotation;
+    my $flip  = $best->best_flipped_rotation;
+
+    # start over
+    $best->clear;
 
 =head1 DESCRIPTION
 
+Assume that you have a list of vectors v_1, v_2, v_3, ..., v_n and
+an equally sized list of vectors w_1, w_2, ..., w_n. A way to
+quantify how similar these lists are to each other is to compute the
+sum of the squared distances between the vectors:
+sum((w_1 - v_1)**2 + ... + (w_n - v_n)**2).
+In the literature, this sum is sometimes divided by 2 or divided
+by n or divided by n and the square root is taken ("root mean
+square" or RMS deviation).
+
+In some situations, one data set can be arbitrarily rotated with
+respect to the other one. In this case, one of them has to be
+rotated in order to calculate the RMS deviation in a meaningful way.
+C<Math::Vector::BestRotation> solves this problem. It calculates the
+best orthogonal map U between the v_i and w_i. "Best" means here
+that the RMS deviation between Uv and w as calculated above is
+minimized.
+
+An orthogonal map can be a rotation or a rotation combined with
+a reflection (I call that a flipped rotation). This module enables
+you to find the best orthogonal map, the best rotation, or the
+best flipped rotation between two given vector sets.
+
+The algorithm implemented here is based on two research papers
+listed in the L<ACKNOLEDGEMENT|/ACKNOWLEDGEMENT> section. It works
+for higher dimensional vector spaces as well, but the current
+implementation supports only three-dimensional vectors. This
+limitation is going to be remedied in a future version of this
+module.
+
+The two data sets could not only rotated with respect to each
+other, but also translated. This translation can be removed prior
+to the determination of the rotation by aligning the centers of
+masses of the two vector sets. However, this procedure is not
+offered by C<Math::Vector::BestRotation> and possibly will never
+be, because this would require to store the full data sets in
+memory which is not necessary now.
 
 =head1 INTERFACE
 
@@ -304,7 +358,7 @@ warning is printed and the argument is ignored.
 
 This attributes holds a matrix built from the pairs of vectors and
 used to compute the desired orthogonal map. It is called R in the
-documentation and the underlying L<Research papers|ACKNOWLEDGEMENTS>.
+documentation and the underlying L<Research papers|/ACKNOWLEDGEMENTS>.
 The accessor is readonly. At startup, C<matrix_r> is initialized with
 zeros.
 
@@ -326,7 +380,8 @@ C<Math::Vector::BestRotation> object.
   Args    : a pair of vectors, each as an ARRAY reference
 
 The orthogonal map computed by this module will try to map the first
-vector onto the second. This method uses the new vector pair to
+vector of each pair onto the corresponding second vector. This method
+uses the new vector pair to
 update the matrix R which is later used to compute the best map.
 The vectors are discarded afterwards and can therefore not be
 removed once they have been added.
@@ -338,6 +393,25 @@ strictly requires ARRAY references. If your vectors are stored e.g.
 as L<Math::VectorReal|Math::VectorReal> objects you have to turn
 them into ARRAY references yourself. Furthermore, no error checking
 whatsoever is performed. The method expects you to provide valid
+data. See also L<add_many_pairs|/add_many_pairs>.
+
+=head3 add_many_pairs
+
+  Usage   : $obj->add_many_pairs([[1, 2, 3], [3, 0, 6]],
+                                 [[0, 7, 5], [-2, 1, -1]])
+  Function: updates matrix_r
+  Returns : nothing
+  Args    : a pair of vectors, each as an ARRAY reference
+
+An alternative to L<add_pair|/add_pair>. It expects two lists of
+vectors. The first one contains the first vector of each pair,
+the second one contains the second vector of each pair (see
+L<add_pair|/add_pair>. If you have many vector pairs to add it
+is probably faster to build these lists and then use this method
+since it saves you a lot of method calls.
+
+For perfomance reasons, no checks are performed not even if the
+two lists have equal sizes. You are expected to provide valid
 data.
 
 =head3 best_orthogonal
@@ -363,7 +437,7 @@ L<Math::MatrixReal|Math::MatrixReal> object.
   Returns : a Math::MatrixReal object
   Args    : none
 
-This is identical to L<best_orthogonal|best_orthogonal> except that
+This is identical to L<best_orthogonal|/best_orthogonal> except that
 it finds the best special orthogonal map (this means that the
 determinant is +1, i.e. the map is a true rotation).
 
@@ -382,7 +456,7 @@ L<Math::MatrixReal|Math::MatrixReal> object.
   Returns : a Math::MatrixReal object
   Args    : none
 
-This is identical to L<best_orthogonal|best_orthogonal> except that
+This is identical to L<best_orthogonal|/best_orthogonal> except that
 it finds the best orthogonal map with determinant is -1. I do not
 know why one would want that, but the method is included for
 completeness.
@@ -397,7 +471,7 @@ L<Math::MatrixReal|Math::MatrixReal> object.
   Returns : nothing
   Args    : none
 
-This method resets L<matrix_r|matrix_r> to the null matrix (all
+This method resets L<matrix_r|/matrix_r> to the null matrix (all
 entries equal zero). This enables you to start from scratch with
 two new vector sets without destroying the object.
 
@@ -405,10 +479,16 @@ two new vector sets without destroying the object.
 
 =head2 Exceptions
 
+Sorry, not documented, yet.
+
 =head2 Warnings
+
+Sorry, not documented, yet.
 
 
 =head1 BUGS AND LIMITATIONS
+
+=head2 Bugs
 
 No bugs have been reported, but the code should be considered as
 beta quality.
@@ -420,6 +500,10 @@ L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Math-Vector-BestRotation>.
 I will be notified, and then you
 will automatically be notified of progress on your bug as I make
 changes.
+
+=head2 Limitations
+
+See L<DESCRIPTION|/DESCRIPTION>.
 
 
 =head1 AUTHOR
