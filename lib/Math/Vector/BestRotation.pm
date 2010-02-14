@@ -6,7 +6,7 @@ use strict;
 use 5.008008;
 
 use Carp;
-use List::Util qw(sum);
+use List::Util qw(sum max);
 use Math::MatrixReal;
 
 =head1 NAME
@@ -15,11 +15,11 @@ C<Math::Vector::BestRotation> - best rotation to match two vector sets
 
 =head1 VERSION
 
-Version 0.007
+Version 0.009
 
 =cut
 
-our $VERSION = '0.007';
+our $VERSION = '0.009';
 
 
 ###########################################################################
@@ -68,6 +68,13 @@ sub matrix_r {
 	  [$self->{matrix_r}->[6],
 	   $self->{matrix_r}->[7],
 	   $self->{matrix_r}->[8]]]);
+}
+
+sub matrix_u {
+    my ($self, @args) = @_;
+
+    croak "Attribute matrix_u is readonly.\n" if(@args);
+    return $self->{matrix_u};
 }
 
 ###########################################################################
@@ -199,23 +206,81 @@ sub best_orthogonal {
 	$b = $b * Math::MatrixReal->new_from_rows
 	    ([[1, 0, 0], [0, 1, 0], [0, 0, -1]]);
     }
-    return $self->_matrix_a_to_b($a, $b);
+
+    $self->{matrix_u} = $self->_matrix_a_to_b($a, $b);
+    return $self->{matrix_u};
 }
 
 sub best_rotation {
     my ($self)  = @_;
     my ($a, $b) = $self->_compute_bases;
 
-    return $self->_matrix_a_to_b($a, $b);
+    $self->{matrix_u} =  $self->_matrix_a_to_b($a, $b);
+    return $self->{matrix_u};
 }
 
-sub best_flipped_rotation {
+sub best_proper_rotation { shift(@_)->best_rotation(@_) }
+
+sub best_improper_rotation {
     my ($self)  = @_;
     my ($a, $b) = $self->_compute_bases;
 
-    $b = $b * Math::MatrixReal->new_from_rows
-	([[1, 0, 0], [0, 1, 0], [0, 0, -1]]);
-    return $self->_matrix_a_to_b($a, $b);
+    $b = $b * Math::MatrixReal->new_diag([1, 1, -1]);
+
+    $self->{matrix_u} =  $self->_matrix_a_to_b($a, $b);
+    return $self->{matrix_u};
+}
+
+sub best_flipped_rotation { shift(@_)->best_improper_rotation(@_) }
+
+sub rotation_axis {
+    my ($self, @args) = @_;
+    my $matrix        = @args > 0 ? $args[0] : $self->matrix_u;
+
+    croak("Unable to find the rotation axis of an undefined matrix. ".
+	  "Has any rotation been calculated, yet?.\n")
+	if(!defined($matrix));
+    croak("Wrong type of matrix given to rotation_matrix.\n")
+	if(!eval { $matrix->isa('Math::MatrixReal') } );
+    croak("The calculation of a rotation axis of an improper rotation ".
+	  "is not supported.\n")
+	if($matrix->det < 0);
+
+    my $unity = Math::MatrixReal->new_diag([1, 1, 1]);
+    my $m     = $matrix + ~$matrix - ($matrix->trace - 1) * $unity;
+
+    my @col_lengths = map { $m->col($_)->length } (1, 2, 3);
+
+    my $axis;
+    if($col_lengths[0] >= max($col_lengths[1], $col_lengths[2])) {
+	$axis = $m->col(1)->each(sub { $_[0] / $col_lengths[0] });
+    }
+    elsif($col_lengths[1] >= max($col_lengths[2], $col_lengths[0])) {
+	$axis = $m->col(2)->each(sub { $_[0] / $col_lengths[1] });
+    }
+    else {
+	$axis = $m->col(3)->each(sub { $_[0] / $col_lengths[2] });
+    }
+    
+    return $axis;
+}
+
+sub rotation_angle {
+    my ($self, @args) = @_;
+    my $matrix        = @args > 0 ? $args[0] : $self->matrix_u;
+
+    croak("Unable to find the rotation angle of an undefined matrix. ".
+	  "Has any rotation been calculated, yet?.\n")
+	if(!defined($matrix));
+    croak("Wrong type of matrix given to rotation_matrix.\n")
+	if(!eval { $matrix->isa('Math::MatrixReal') } );
+    croak("The calculation of a rotation angle of an improper rotation ".
+	  "is not supported.\n")
+	if($matrix->det < 0);
+
+    my $cos = ($matrix->trace - 1) / 2;
+
+    return abs(atan2(sqrt(1 - $cos**2), $cos));
 }
 
 ###########################################################################
@@ -252,6 +317,7 @@ sub clear {
     my ($self) = @_;
 
     $self->{matrix_r} = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+    $self->{matrix_u} = undef;
 }
 
 
@@ -274,12 +340,17 @@ __END__
 
     my $ortho = $best->best_orthogonal;
     my $rot   = $best->best_rotation;
-    my $flip  = $best->best_flipped_rotation;
+    my $flip  = $best->best_improper_rotation;
+
+    my $axis  = $best->rotation_axis;
+    my $angle = $best->rotation_angle;
 
     # start over
     $best->clear;
 
 =head1 DESCRIPTION
+
+=head2 Introduction
 
 Assume that you have a list of vectors v_1, v_2, v_3, ..., v_n and
 an equally sized list of vectors w_1, w_2, ..., w_n. A way to
@@ -298,25 +369,43 @@ best orthogonal map U between the v_i and w_i. "Best" means here
 that the RMS deviation between Uv and w as calculated above is
 minimized.
 
-An orthogonal map can be a rotation or a rotation combined with
-a reflection (I call that a flipped rotation). This module enables
-you to find the best orthogonal map, the best rotation, or the
-best flipped rotation between two given vector sets.
+An orthogonal map can be a (proper) rotation or a rotation combined
+with a reflection (improper rotation). This module enables you to
+find the best orthogonal map, the best proper rotation, or
+the best improper rotation between two given vector sets.
+
+=head2 Analysis
+
+Once you have obtained your optimal map you might be interested in
+what was actually needed to optimize the match. Currently, the
+method offers to calculate the rotation axis and angle for a
+proper rotation. Support for improper rotations is planned. It
+might also be interesting to know how much (in terms of RMS
+deviation) is gained by applying the map. Right now you have to
+do this yourself, but support for this is also planned.
+
+=head2 Outlook and Limitations
 
 The algorithm implemented here is based on two research papers
-listed in the L<ACKNOLEDGEMENT|/ACKNOWLEDGEMENT> section. It works
-for higher dimensional vector spaces as well, but the current
-implementation supports only three-dimensional vectors. This
-limitation is going to be remedied in a future version of this
+listed in the L<ACKNOWLEDGEMENTS|/ACKNOWLEDGEMENTA> section. It
+works for higher dimensional vector spaces as well, but the
+current implementation supports only three-dimensional vectors.
+This limitation is going to be remedied in a future version of this
 module.
 
-The two data sets could not only rotated with respect to each
+The two data sets could not only be rotated with respect to each
 other, but also translated. This translation can be removed prior
 to the determination of the rotation by aligning the centers of
-masses of the two vector sets. However, this procedure is not
+mass of the two vector sets. However, this procedure is not
 offered by C<Math::Vector::BestRotation> and possibly will never
 be, because this would require to store the full data sets in
 memory which is not necessary now.
+
+The underlying algorithm supports to assign different weights to
+the vector pairs to reflect that it might be more important to
+align some pairs then others (e.g. because there measurement had
+a smaller error). This is currently not implemented but planned
+for the future.
 
 =head1 INTERFACE
 
@@ -345,14 +434,19 @@ It provides the following functions:
 
 =over 4
 
-=item * For each given argument (which has not been deleted by
-the previous actions) it calls the accessor with the same name to
+=item * For each given argument it calls the accessor with the
+same name to
 initialize the attribute. If such an accessor does not exist a
 warning is printed and the argument is ignored.
 
 =back
 
 =head2 Public Attributes
+
+Each of the following attributes has an accessor method of the same
+name which can be used to set or retrieve the stored value (it is
+mentioned below if an attribute is readonly). The accessors always
+return the current value (the new one in case it has been updated).
 
 =head3 matrix_r
 
@@ -370,7 +464,16 @@ to get a new object. Accordingly, changing of your retrieved matrix
 does not alter the underlying matrix stored in the
 C<Math::Vector::BestRotation> object.
 
-=head2 Methods for Users
+=head3 matrix_u
+
+Holds the result matrix after calling one of the
+L<best_...|/best_orthogonal> methods
+(undef before the first such call and after calling L<clear|/clear>).
+Note that it will I<not> be reset by calling L<add_pair|/add_pair>
+or L<add_many_pairs|/add_many_pairs>. It will still hold the result
+of the last C<best_...> call. The accessor is readonly.
+
+=head2 Methods for Data Input
 
 =head3 add_pair
 
@@ -406,13 +509,27 @@ data. See also L<add_many_pairs|/add_many_pairs>.
 An alternative to L<add_pair|/add_pair>. It expects two lists of
 vectors. The first one contains the first vector of each pair,
 the second one contains the second vector of each pair (see
-L<add_pair|/add_pair>. If you have many vector pairs to add it
+L<add_pair|/add_pair>). If you have many vector pairs to add it
 is probably faster to build these lists and then use this method
 since it saves you a lot of method calls.
 
 For perfomance reasons, no checks are performed not even if the
 two lists have equal sizes. You are expected to provide valid
 data.
+
+=head3 clear
+
+  Usage   : $obj->clear
+  Function: resets the object
+  Returns : nothing
+  Args    : none
+
+This method resets L<matrix_r|/matrix_r> to the null matrix (all
+entries equal zero). This enables you to start from scratch with
+two new vector sets without destroying the object. Note that
+L<matrix_u|/matrix_u> is not reset.
+
+=head2 Methods for Finding Maps
 
 =head3 best_orthogonal
 
@@ -425,7 +542,7 @@ Computes the best orthogonal map between the two vector sets, i.e.
 the orthogonal map that minimizes the sum of the squared distances
 between the image of the first vector of each pair and the
 corresponding second vector. This map can be either a rotation or
-a rotation followed by a reflection.
+a rotation followed by a reflection (improper rotation).
 
 The representing matrix of the found map is returned in form of a
 L<Math::MatrixReal|Math::MatrixReal> object.
@@ -449,41 +566,154 @@ corresponding second vector.
 The representing matrix of the found map is returned in form of a
 L<Math::MatrixReal|Math::MatrixReal> object.
 
-=head3 best_flipped_rotation
+=head3 best_proper_rotation
 
-  Usage   : $matrix = $obj->best_flipped_rotation
+Alias for L<best_rotation|/best_rotation>.
+
+=head3 best_improper_rotation
+
+  Usage   : $matrix = $obj->best_improper_rotation
   Function: computes the best rotation combined with a reflection
   Returns : a Math::MatrixReal object
   Args    : none
 
 This is identical to L<best_orthogonal|/best_orthogonal> except that
-it finds the best orthogonal map with determinant is -1. I do not
+it finds the best orthogonal map with determinant -1. I do not
 know why one would want that, but the method is included for
 completeness.
 
 The representing matrix of the found map is returned in form of a
 L<Math::MatrixReal|Math::MatrixReal> object.
 
-=head3 clear
+=head3 best_flipped_rotation
 
-  Usage   : $obj->clear
-  Function: resets the object
-  Returns : nothing
+Alias for L<best_improper_rotation|/best_improper_rotation> for
+backwards compatibility.
+
+=head2 Methods for Result Analysis
+
+=head3 rotation_axis
+
+  Usage   : $axis = $obj->rotation_axis
+  Function: computes the rotation axis of the last map found
+  Returns : a unit vector in form of a Math::MatrixReal column
+  Args    : optional a Math::MatrixReal object
+
+In the three-dimensional case, a proper rotation (with an angle
+which is I<not> a multiple of pi) leaves exactly one
+line fixed. This method takes the matrix stored in 
+L<matrix_u|/matrix_u> and computes a unit vector along this axis
+and returns it in form of a L<Math::MatrixReal|Math::MatrixReal>
+object (column vector). There are two special cases
+
+=head4 Special cases
+
+=over 4
+
+=item 1. The rotation angle is a multiple of 2pi. This is the
+same as no rotation at all and an axis cannot be determined
+uniquely (in fact, each vector is as good as any other). In
+this case, a warning is printed and undef is returned. A
+warning is also printed if the rotation is very close to the
+identity map such that numerical instability a threat.
+See also L<Warnings|/Warnings>.
+
+=item 2. The rotation angle is a odd multiple of pi. In this case,
+also lines in the plane perpendicular to the axis are mapped onto
+themselves. Still, a vector in the direction of the rotation axis
+is returned.
+
+=back
+
+=head4 Orientation of the vector
+
+Even if the rotation axis is unique, the orientation of the vector
+is not (a unit vector along the axis multiplied with -1 is as
+good). One could determine it in a way that the rotation angle in
+mathematical positive direction is less or equal than pi. This
+might come in the future. Currently, the orientation of the
+vector that is returned has to be considered as arbitrary (and
+might change between module versions).
+
+=head4 Improper rotations
+
+Improper rotations are currently not supported and lead to an
+exception. However, this is planned for a future version of this
+module.
+
+=head4 Higher-dimensional vector spaces
+
+Spaces with more than three dimensions are not supported. I do not
+know if they ever will be. In higher dimensions the eigenspace to
+the eigenvalue 1 can have more dimensions than one. I do not know
+what one would want to do with this. Moreover, the algorithm
+described below cannot be trivially extended to higher dimensions.
+There are other solutions, though. Please contact me if you would
+like to have some kind of this functionality.
+
+=head4 Algorithm
+
+In the case of a proper rotation, we look for an eigenvector of the
+rotation matrix with the eigenvalue 1. The canonical way is to
+solve the system of linear equations given by C<(U - I)v = 0> where
+C<I> denotes the unity matrix. However, rounding errors can lead to
+the case where U is not strictly orthogonal and the system has only
+the trivial solution C<v = 0>.
+
+Instead, the method calculates the matrix
+C<(U + ~U) - (trU - 1)I> where C<~U> is the transpose of C<U>,
+C<trU> is the trace of C<U>, and C<I> is the unity matrix. This
+matrix is a multiple of C<v * ~v> where C<v> is an axis vector.
+See reference [3] in the L<ACKNOWLEDGEMENTS|/ACKNOWLEDGEMENTS> for
+details. C<v> is then extracted as a non-zero column of this
+matrix.
+
+=head3 rotation_angle
+
+  Usage   : $angle = $obj->rotation_angle
+  Function: computes the rotation angle of the last map found
+  Returns : the angle between 0 and pi
   Args    : none
 
-This method resets L<matrix_r|/matrix_r> to the null matrix (all
-entries equal zero). This enables you to start from scratch with
-two new vector sets without destroying the object.
+=head4 Approach
+
+The angle is calculated as C<acos((trU - 1) / 2)>. See
+reference [3] in the L<ACKNOWLEDGEMENTS|/ACKNOWLEDGEMENTS> for
+details. Currently, the sign of the angle is uncorrelated to the
+orientation of the axis vector returned by
+L<rotation_axis|/rotation_axis>. This will be remedied in a future
+version, but for now, the returned value is the absolute value of
+the rotation angle.
+
+=head4 Improper rotations
+
+Improper rotations are currently not supported and raise an
+execption. However, this is planned for a future version of this
+module.
+
+=head4 Higher-dimensional vector spaces
+
+Spaces with more than three dimensions are not supported. I do not
+know if they ever will be. In higher dimensions the eigenspace to
+the eigenvalue 1 can have more dimensions than one. Currently, I do
+not know if a rotation angle can be defined in a meaningful way.
+Anyway, the algorithm mentioned above cannot be trivially extended
+to higher dimensions. Please contact me if you would
+like to have some kind of this functionality.
 
 =head1 DIAGNOSTICS
 
 =head2 Exceptions
 
-Sorry, not documented, yet.
+Sorry, not documented, yet. Exceptions are thrown using C<croak>
+(see L<Carp|Carp>) in the case of user "misconduct".
 
 =head2 Warnings
 
-Sorry, not documented, yet.
+Sorry, not documented in detail, yet. Warnings are printed using
+C<carp> (see L<Carp|Carp>) when numerical instabilities have to
+be expected. This cannot be switched off at the moment, but in the
+future, there might be a C<verbose> attribute.
 
 
 =head1 BUGS AND LIMITATIONS
@@ -514,7 +744,7 @@ Lutz Gehlen, C<< <perl at lutzgehlen.de> >>
 =head1 ACKNOWLEDGEMENTS
 
 The algorithm implemented here is based on two research papers by
-Wolfgang Kabsch, Max-Planck-Institut für Medizinische Forschung,
+Wolfgang Kabsch, Max-Planck-Institut fuer Medizinische Forschung,
 Heidelberg, Germany:
 
 =over 4
@@ -525,6 +755,16 @@ relate two sets of vectors. Acta Cryst., A32, 922
 =item [2] Kabsch, W. (1978). A discussion of the solution for the
 best rotation to relate two sets of vectors. Acta Cryst., A34,
 827-828
+
+=back
+
+The determination of rotation axis and angle follows derivations
+laid out in
+
+=over 4
+
+=item [3] Fillmore, J. P. (1984). A Note on Rotation Matrices.
+IEEE Comput. Graph. Appl., vol. 4, no. 2, pp. 30-33
 
 =back
 

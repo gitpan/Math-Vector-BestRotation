@@ -3,7 +3,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 10230;
+use Test::More tests => 10252;
 use Math::MatrixReal;
 
 BEGIN {
@@ -64,6 +64,7 @@ sub _get_vector_pair {
 
 sub best_orthogonal {
     my $rot = Math::Vector::BestRotation->new;
+    my $pi  = atan2(1, 1) * 4;
     my $matrix;
     my $ref;
     my $diff;
@@ -90,6 +91,16 @@ sub best_orthogonal {
 		   sprintf("result from scratch %d %d", $i+1, $j+1));
 	}
     }
+    $matrix = $rot->matrix_u;
+    isa_ok($matrix, 'Math::MatrixReal');
+    cmp_ok(abs($matrix->det - 1), '<', 1e-9, 'is special orthogonal');
+    $diff = $matrix - $ref;
+    for(my $i=0;$i<3;$i++) {
+	for(my $j=0;$j<3;$j++) {
+	    cmp_ok(abs($diff->element($i+1, $j+1)), '<', 1e-9,
+		   sprintf("result from scratch %d %d", $i+1, $j+1));
+	}
+    }
 
     # another simple one
     $rot->clear;
@@ -101,6 +112,23 @@ sub best_orthogonal {
     $rot->add_pair(_get_vector_pair($ref, [0, 1, 0]));
     $rot->add_pair(_get_vector_pair($ref, [0, 0, 1]));
     $matrix = $rot->best_orthogonal;
+    isa_ok($matrix, 'Math::MatrixReal');
+    cmp_ok(abs($matrix->det - 1), '<', 1e-9, 'is special orthogonal');
+    $diff = $matrix - $ref;
+    for(my $i=0;$i<3;$i++) {
+	for(my $j=0;$j<3;$j++) {
+	    cmp_ok(abs($diff->element($i+1, $j+1)), '<', 1e-9,
+		   sprintf("another simple %d %d", $i+1, $j+1));
+	}
+    }
+
+    # another simple one
+    $rot->clear;
+    $ref = _get_rot_matrix(0, $pi / 2, 0);
+    $rot->add_pair(_get_vector_pair($ref, [1, 0, 0]));
+    $rot->add_pair(_get_vector_pair($ref, [0, 1, 0]));
+    $rot->add_pair(_get_vector_pair($ref, [0, 0, 1]));
+    $matrix = $rot->best_rotation;
     isa_ok($matrix, 'Math::MatrixReal');
     cmp_ok(abs($matrix->det - 1), '<', 1e-9, 'is special orthogonal');
     $diff = $matrix - $ref;

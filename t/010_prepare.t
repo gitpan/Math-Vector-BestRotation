@@ -3,10 +3,11 @@
 use strict;
 use warnings;
 
-use Test::More tests => 115;
+use Test::More tests => 120;
 
 BEGIN {
     use_ok('Math::Vector::BestRotation');
+    eval "use Test::Exception";
 }
 
 sub clear {
@@ -176,6 +177,27 @@ sub add_many_pairs {
     }
 }
 
+sub matrix_u {
+    my $rot = Math::Vector::BestRotation->new;
+
+    can_ok($rot, 'matrix_u');
+    ok(!defined($rot->matrix_u), 'matrix_u undefined');
+    $rot->{matrix_u} = 'foo';
+    ok(defined($rot->matrix_u), 'matrix_u defined');
+    $rot->clear;
+    ok(!defined($rot->matrix_u), 'matrix_u undefined');
+
+  SKIP: {
+      skip('Test::Exception unavailable', 1)
+	  if(!$Test::Exception::VERSION);
+
+      throws_ok(sub { $rot->matrix_u('foo') },
+		qr/matrix_u.*readonly/,
+		'croak on argument for matrix_u');
+    }
+}
+
 clear;
 add_pair;
 add_many_pairs;
+matrix_u;

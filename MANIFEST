@@ -20,7 +20,9 @@ t/000_load.t
 t/005_startup.t
 t/010_prepare.t
 t/015_find_maps.t
+t/020_analyze.t
 t/700_boilerplate.t
 t/705_manifest.t
 t/750_pod.t
 t/755_pod_coverage.t
+TODO
